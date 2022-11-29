@@ -9,7 +9,7 @@ defmodule Gg2048.Application do
   def start(_type, _args) do
     children = [
       {Phoenix.PubSub, name: Gg2048.PubSub}
-    ] ++ Gg2048.Game.Sup.all()
+    ] ++ Gg2048.Game.Sup.specs()
 
     Supervisor.start_link(children, strategy: :one_for_one, name: Gg2048.Supervisor)
   end

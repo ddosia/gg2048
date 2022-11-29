@@ -7,8 +7,7 @@ config :gg2048_web, Gg2048Web.Endpoint,
   secret_key_base: "vGhUYEVbG+HsIO/oy6ErYG2o+I1uYxvRkx6qCmaCTiuTVGUgg2L5qpnV10qdOhVn",
   server: false
 
-# Print only warnings and errors during test
-config :logger, level: :warn
+config :logger, level: :debug
 
 # Initialize plugs at runtime for faster test compilation
 config :phoenix, :plug_init_mode, :runtime
