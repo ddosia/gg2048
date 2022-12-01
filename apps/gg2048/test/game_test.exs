@@ -2,24 +2,22 @@ defmodule GameTest do
   require Logger
   import TestHelper
 
-  alias Gg2048.{Player, Game}
+  alias Gg2048.{Player, Game, Board}
   alias Gg2048.Game.{Sup}
 
   use ExUnit.Case
-
-  setup_all do
-    {:ok, _} = Application.ensure_all_started(:gg2048)
-  end
 
   setup do
     # most of the tests need a game and few players. These are predefined
     # actors and a game.
 
     state = [
-      game_id: Game.new(),
+      game_id: Game.new(%Board{players: %{min: 1, max: 3}}),
       alice: %Player{id: "alice"},
       bob: %Player{id: "bob"},
-      carol: %Player{id: "carol"}
+      carol: %Player{id: "carol"},
+      dave: %Player{id: "dave"},
+      eve: %Player{id: "eve"},
     ]
 
     on_exit fn ->
@@ -40,12 +38,6 @@ defmodule GameTest do
   end
 
 
-  test "board", context do
-    {:ok, board} = Game.get_board(context[:game_id])
-    assert is_map(board)
-  end
-
-
   test "join twice", context do
     assert Game.join(context[:game_id], context[:alice].id) == :ok
     assert wrong_call(
@@ -58,24 +50,26 @@ defmodule GameTest do
     assert Game.join(context[:game_id], context[:bob].id) == :ok
   end
 
-  # default game has two maximum players
+  # default game has three maximum players
   test "join full lobby", context do
     assert Game.join(context[:game_id], context[:alice].id) == :ok
     assert Game.join(context[:game_id], context[:bob].id) == :ok
+    assert Game.join(context[:game_id], context[:carol].id) == :ok
     assert wrong_call(
-      Game.join(context[:game_id], context[:carol].id)
-    ) == {:join, context[:carol].id}
+      Game.join(context[:game_id], context[:dave].id)
+    ) == {:join, context[:dave].id}
   end
 
   test "join full -> leave join", context do
     assert Game.join(context[:game_id], context[:alice].id) == :ok
     assert Game.join(context[:game_id], context[:bob].id) == :ok
+    assert Game.join(context[:game_id], context[:carol].id) == :ok
     assert wrong_call(
-      Game.join(context[:game_id], context[:carol].id)
-    ) == {:join, context[:carol].id}
+      Game.join(context[:game_id], context[:dave].id)
+    ) == {:join, context[:dave].id}
 
     assert Game.leave(context[:game_id], context[:alice].id) == :ok
-    assert Game.join(context[:game_id], context[:carol].id) == :ok
+    assert Game.join(context[:game_id], context[:dave].id) == :ok
 
   end
 
@@ -86,6 +80,7 @@ defmodule GameTest do
   end
 
   test "start", context do
+    # not enough players
     assert wrong_call(Game.start(context[:game_id])) == :start
 
     assert Game.join(context[:game_id], context[:alice].id) == :ok
@@ -100,5 +95,40 @@ defmodule GameTest do
     assert Game.leave(context[:game_id], context[:alice].id) == {:error, :player_disconnected}
     assert Game.join(context[:game_id], context[:alice].id) == :ok
     assert Game.join(context[:game_id], context[:alice].id) == {:error, :player_connected}
+  end
+
+
+  test "basic order", context do
+    player_ids = [
+      context[:alice].id, context[:bob].id, context[:carol].id
+    ] |> Enum.sort
+
+    for p_id <- player_ids do
+      assert Game.join(context[:game_id], p_id) == :ok
+    end
+    assert Game.start(context[:game_id]) == :ok
+
+    {:ok, game} = Game.get_state(context[:game_id])
+    assert game.order |> Enum.sort == player_ids
+  end
+
+  test "disconnect/reconnect order", context do
+    player_ids = [
+      context[:alice].id, context[:bob].id, context[:carol].id
+    ] |> Enum.sort
+
+    for p_id <- player_ids do
+      assert Game.join(context[:game_id], p_id) == :ok
+    end
+    assert Game.start(context[:game_id]) == :ok
+
+    assert Game.leave(context[:game_id], context[:alice].id) == :ok
+
+    {:ok, game} = Game.get_state(context[:game_id])
+    assert game.order |> Enum.sort == (player_ids -- [context[:alice].id])
+
+    assert Game.join(context[:game_id], context[:alice].id) == :ok
+    {:ok, game} = Game.get_state(context[:game_id])
+    assert List.last(game.order) == context[:alice].id
   end
 end

@@ -1,9 +1,4 @@
 defmodule Gg2048 do
-  @moduledoc """
-  Gg2048 keeps the contexts that define your domain
-  and business logic.
-
-  Contexts are also responsible for managing your data, regardless
-  if it comes from the database, an external API or others.
-  """
+  @type ok_error() :: :ok | {:ok, any()} | {:error, any()}
+  @type ok_error(ok) :: :ok | {:ok, ok} | {:error, any()}
 end

@@ -1,15 +1,3 @@
-defmodule Gg2048.Player do
-  @type id :: String.t()
-
-  @enforce_keys [:id]
-  defstruct [:id, in_game: true]
-  @type t :: %__MODULE__{
-    id: id(),
-    in_game: boolean()
-  }
-end
-
-
 defmodule Gg2048.Game.Sup do
   use DynamicSupervisor
 
@@ -37,18 +25,25 @@ end
 
 
 defmodule Gg2048.Game do
-  @type ok_error() :: :ok | {:ok, any()} | {:error, any()}
-  @type ok_error(ok) :: :ok | {:ok, ok} | {:error, any()}
+  @type ok_error() :: Gg2048.ok_error()
+  @type ok_error(ok) :: Gg2048.ok_error(ok)
   @type id :: Ecto.UUID.id
 
   @timeout 5 * 60
   @enforce_keys [:id, :board]
-  defstruct [:id, :board, phase: :init, timeout: @timeout, lobby: %{}]
+  defstruct [
+    :id, :board,
+    phase: :init,
+    timeout: @timeout,
+    order: [],
+    lobby: %{}
+  ]
   @type t :: %__MODULE__{
     id: id(),
     board: Board.t(),
     phase: :init | :started | :finished,
     timeout: non_neg_integer(),
+    order: [Player.id()],
     lobby: %{
       Player.id() => Player.t()
     }
@@ -62,7 +57,8 @@ defmodule Gg2048.Game do
   ################
   ## API
   @spec new(Board.t()) :: id()
-  def new(board \\ Board.default()) do
+  def new(board \\ %Board{}) do
+    board = Board.init(board)
     id = Ecto.UUID.generate()
 
     {:ok, _} = DynamicSupervisor.start_child(
@@ -77,9 +73,10 @@ defmodule Gg2048.Game do
   end
 
 
-  @spec get_board(id()) :: ok_error(Board.t())
-  def get_board(id) do
-    GenServer.call(via(id), :get_board)
+  @spec get_state(id()) :: ok_error(Game.t())
+  @doc "For testing purposes. Might move it under the TEST macro"
+  def get_state(id) do
+    GenServer.call(via(id), :get_state)
   end
 
 
@@ -100,6 +97,12 @@ defmodule Gg2048.Game do
   @spec start(id()) :: ok_error()
   def start(id) do
     GenServer.call(via(id), :start)
+  end
+
+
+  @spec move(id(), Player.id(), Board.to()) :: ok_error(Board.t())
+  def move(id, player_id, to) do
+    GenServer.call(via(id), {:move, player_id}, to)
   end
 
 
@@ -128,8 +131,8 @@ defmodule Gg2048.Game do
     {:reply, {:error, :finished}, state}
   end
 
-  def handle_call(:get_board, _from, state) do
-    {:reply, {:ok, state.board}, state}
+  def handle_call(:get_state, _from, state) do
+    {:reply, {:ok, state}, state}
   end
 
   def handle_call({:join, player_id}, _from, state) when
@@ -137,7 +140,7 @@ defmodule Gg2048.Game do
     and not is_map_key(state.lobby, player_id)
     and map_size(state.lobby) < state.board.players.max
   do
-    # Player tries to join new game
+    # Player joins new game
     Logger.info "Player #{player_id} joins the game lobby #{state.id}"
     {:reply, :ok, %Game{
       state | lobby: Map.put(
@@ -150,15 +153,14 @@ defmodule Gg2048.Game do
     state.phase == :started
     and is_map_key(state.lobby, player_id)
   do
-    # Player tries to reconnect to already started game
+    # Player reconnects to already started game
     lobby = state.lobby
 
     case lobby[player_id] do
       p = %Player{in_game: false} ->
         Logger.info "Player #{player_id} reconnected the game #{state.id}"
-        lobby = %{lobby | player_id => %Player{p | in_game: true}}
 
-        {:reply, :ok, %Game{state | lobby: lobby}}
+        {:reply, :ok, do_reconnect(state, p)}
       _ ->
         {:reply, {:error, :player_connected}, state}
     end
@@ -167,6 +169,7 @@ defmodule Gg2048.Game do
   def handle_call(
     {:leave, player_id}, _from, state
   ) when state.phase == :init and is_map_key(state.lobby, player_id) do
+    # Player leaves from not yet started game
     lobby = state.lobby
 
     Logger.info "Player #{player_id} leaves the game lobby #{state.id}"
@@ -176,18 +179,15 @@ defmodule Gg2048.Game do
   def handle_call(
     {:leave, player_id}, _from, state
   ) when state.phase == :started and is_map_key(state.lobby, player_id) do
-    # gamer for whatever reason stopped playing the game. It could have
+    # Player for whatever reason stopped playing the game. It could have
     # been intentional decision or technical difficulties.
     # there is a chance the player would come back, meanwhile the game can
     # continue.
     lobby = state.lobby
-
     case lobby[player_id] do
       p = %Player{in_game: true} ->
         Logger.info "Player #{player_id} disconnected the game #{state.id}"
-        lobby = %{lobby | player_id => %Player{p | in_game: false}}
-
-        {:reply, :ok, %Game{state | lobby: lobby}}
+        {:reply, :ok, do_disconnect(state, p)}
       _ ->
         {:reply, {:error, :player_disconnected}, state}
     end
@@ -204,8 +204,17 @@ defmodule Gg2048.Game do
     {:reply, :ok, %Game{state | phase: :started}}
   end
 
-  def handle_call(:finish, _from, state = %Game{:id => id}) do
-    Logger.info "Preparing to finish the game #{id}"
+  def handle_call(
+    {:move, player_id, to}, _from, state
+  ) when state.phase == :started
+    and hd(state.order) == player_id
+  do
+    {reply, state} = do_move(state, player_id, to)
+    {:reply, reply, state}
+  end
+
+  def handle_call(:finish, _from, state) do
+    Logger.info "Preparing to finish the game #{state.id}"
     # there are some calls might be in flight, let them finish
     GenServer.cast(self(), :finish)
 
@@ -232,11 +241,32 @@ defmodule Gg2048.Game do
     {:via, Registry, {Gg2048.Game.Registry, id}}
   end
 
+
   defp do_start(state) do
-    # placeholder to send ladder stats
-    state
+    order =
+      state.lobby
+      |> Map.keys
+      |> Enum.shuffle
+    %Game{state | order: order}
   end
 
+
+  def do_disconnect(state, p) do
+    # after disconnect player no participates in the game
+    lobby = %{state.lobby | p.id => %Player{p | in_game: false}}
+    %Game{state | lobby: lobby, order: List.delete(state.order, p.id)}
+  end
+
+  def do_reconnect(state, p) do
+    # after reconnect player becomes last to move
+    lobby = %{state.lobby | p.id => %Player{p | in_game: true}}
+    %Game{state | lobby: lobby, order: state.order ++ [p.id]}
+  end
+
+
+  def do_move(state, player_id, to) do
+    Board.move(state.board, to)
+  end
 
   defp do_finish(state) do
     # unregister the game from further interractions
@@ -244,25 +274,5 @@ defmodule Gg2048.Game do
 
     # placeholder to send ladder stats
     state
-  end
-end
-
-
-defmodule Gg2048.Board do
-  # map = Tuple.duplicate(Tuple.duplicate(0, x), y)
-  @type minmax() :: %{
-    min: non_neg_integer(),
-    max: non_neg_integer()
-  }
-
-  defstruct [:map, size: %{min: 6, max: 6}, players: %{min: 1, max: 2}]
-  @type t :: %__MODULE__{
-    map: tuple(),
-    size: minmax(),
-    players: minmax()
-  }
-
-  def default() do
-    %Gg2048.Board{}
   end
 end
