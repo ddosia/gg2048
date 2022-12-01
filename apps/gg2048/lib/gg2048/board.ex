@@ -17,17 +17,19 @@ defmodule Gg2048.Board do
     %Board{board | map: map}
   end
 
-  @spec move(t(), to()) :: ok_error(t())
+  @spec move(t(), to()) :: ok_error({score:: non_neg_integer(), t()})
   def move(board, to) when to == :up or to == :down do
     size = board.size.cols
     move_factor = size
 
     Enum.reduce(
-      1..size, board, fn x, board_upd ->
+      1..size,
+      {0, board},
+      fn x, {score, board_upd} ->
         start_pos = x - 1
         end_pos = size * (board.size.rows - 1) + (x - 1)
 
-        move_1(board_upd, to, move_factor, start_pos, end_pos)
+        move_1({score, board_upd}, to, move_factor, start_pos, end_pos)
       end
     )
   end
@@ -36,22 +38,81 @@ defmodule Gg2048.Board do
     move_factor = 1
 
     Enum.reduce(
-      1..size, board, fn x, board_upd ->
+      1..size,
+      {0, board},
+      fn x, {score, board_upd} ->
         start_pos = (x - 1) * size
         end_pos = x * size - 1
-        move_1(board_upd, to, move_factor, start_pos, end_pos)
+        move_1({score, board_upd}, to, move_factor, start_pos, end_pos)
       end
     )
   end
 
 
+  @spec place_rnd!(Board.t(), integer()) :: Board.t()
+  @doc "Places a value at random 0-cell"
+  def place_rnd!(board, val \\ 2) do
+    %Board{board | map: put_elem(board.map, pos_0(board), val)}
+  end
+
+
+  @doc "Calculates a score: a difference between two states of the board"
+  def score(board_prev, board_next) do
+    List.zip([board_prev.map, board_next.map])
+    |> Enum.reduce(
+      0, fn {prev_val, next_val}, score -> score + (next_val - prev_val) end
+    )
+  end
+
   ################
   ## private
   #
-  # Places 2 at random 0-cell
-  defp place_2(board) do
-    pos = pos_0(board)
-    %Board{board | map: put_elem(board.map, pos, 2)}
+  defp move_1({score, board}, to, move_factor, start_pos, end_pos) do
+    if to == :right or to == :down do
+      do_move_1(
+        {score, board}, -move_factor, end_pos - move_factor, end_pos, start_pos
+      )
+    else
+      do_move_1(
+        {score, board}, move_factor, start_pos + move_factor, start_pos, end_pos
+      )
+    end
+  end
+
+  # Moves either a column or a row
+  defp do_move_1(
+    {score, board}, move_factor, cur_pos, _bottom_pos, top_pos
+  ) when cur_pos - move_factor == top_pos do
+    {score, board}
+  end
+  defp do_move_1({score, board}, move_factor, cur_pos, bottom_pos, top_pos) do
+    map = board.map
+    bottom_num = elem(map, bottom_pos)
+
+    case elem(map, cur_pos) do
+      0 ->
+        do_move_1(
+          {score, board}, move_factor, cur_pos + move_factor, bottom_pos, top_pos
+        )
+      _ when bottom_num == 0 ->
+        # move to the bottom, since the bottom is 0
+        do_move_1(
+          {score, swap(board, bottom_pos, cur_pos)},
+          move_factor, cur_pos + move_factor, bottom_pos, top_pos
+        )
+      num when bottom_num == num ->
+        # stack to the bottom, since bottom and current have the same value
+        do_move_1(
+          {score + num * 2, stack(board, cur_pos, bottom_pos)},
+          move_factor, cur_pos + move_factor, bottom_pos + move_factor, top_pos
+        )
+      num when bottom_num != num ->
+        # move the current element above of bottom
+        do_move_1(
+          {score, swap(board, cur_pos, bottom_pos + move_factor)},
+          move_factor, cur_pos + move_factor, bottom_pos + move_factor, top_pos
+        )
+    end
   end
 
 
@@ -63,57 +124,8 @@ defmodule Gg2048.Board do
   end
 
 
-  defp move_1(board, to, move_factor, start_pos, end_pos) do
-    if to == :right or to == :down do
-      do_move_1(
-        board, -move_factor, end_pos - move_factor, end_pos, start_pos
-      )
-    else
-      do_move_1(
-        board, move_factor, start_pos + move_factor, start_pos, end_pos
-      )
-    end
-  end
-
-  @doc "Moves either column or row"
-  defp do_move_1(
-    board, move_factor, cur_pos, _bottom_pos, top_pos
-  ) when cur_pos - move_factor == top_pos do
-    board
-  end
-  defp do_move_1(board, move_factor, cur_pos, bottom_pos, top_pos) do
-    map = board.map
-    bottom_num = elem(map, bottom_pos)
-
-    case elem(map, cur_pos) do
-      0 ->
-        do_move_1(
-          board, move_factor, cur_pos + move_factor, bottom_pos, top_pos
-        )
-      _ when bottom_num == 0 ->
-        # move to the bottom, since the bottom is 0
-        swap_xy(board, bottom_pos, cur_pos)
-        |> do_move_1(
-          move_factor, cur_pos + move_factor, bottom_pos, top_pos
-        )
-      num when bottom_num == num ->
-        # stack to the bottom, since bottom and current have same value
-        stack_xy(board, cur_pos, bottom_pos)
-        |> do_move_1(
-          move_factor, cur_pos + move_factor, bottom_pos + move_factor, top_pos
-        )
-      num when bottom_num != num ->
-        # move the current element on top of bottom
-        swap_xy(board, cur_pos, bottom_pos + move_factor)
-        |> do_move_1(
-          move_factor, cur_pos + move_factor, bottom_pos + move_factor, top_pos
-        )
-    end
-  end
-
-
   # Swaps two board.map values by given coordinates
-  defp swap_xy(board, x, y) do
+  defp swap(board, x, y) do
     map = board.map
     x_val = elem(map, x)
     y_val = elem(map, y)
@@ -123,7 +135,7 @@ defmodule Gg2048.Board do
 
 
   # Stacks value to the second equal value, zeroes first
-  defp stack_xy(board, x, y) do
+  defp stack(board, x, y) do
     map = board.map
     val = elem(map, x)
     ^val = elem(map, y)

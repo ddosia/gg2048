@@ -17,6 +17,11 @@ defmodule Gg2048.Game.Sup do
     end
   end
 
+  def id2pid!(id) do
+    [{pid, _}] = Registry.lookup(Gg2048.Game.Registry, id)
+    pid
+  end
+
   @impl true
   def init(_args) do
     DynamicSupervisor.init(strategy: :one_for_one)
@@ -73,13 +78,6 @@ defmodule Gg2048.Game do
   end
 
 
-  @spec get_state(id()) :: ok_error(Game.t())
-  @doc "For testing purposes. Might move it under the TEST macro"
-  def get_state(id) do
-    GenServer.call(via(id), :get_state)
-  end
-
-
   @spec join(id(), Player.id()) :: ok_error()
   @doc "New player enters the game"
   def join(id, player_id) do
@@ -102,7 +100,7 @@ defmodule Gg2048.Game do
 
   @spec move(id(), Player.id(), Board.to()) :: ok_error(Board.t())
   def move(id, player_id, to) do
-    GenServer.call(via(id), {:move, player_id}, to)
+    GenServer.call(via(id), {:move, player_id, to})
   end
 
 
@@ -127,111 +125,105 @@ defmodule Gg2048.Game do
 
 
   @impl true
-  def handle_call(_call, _from, state = %Game{:phase => :finished}) do
-    {:reply, {:error, :finished}, state}
+  def handle_call(_call, _from, g = %Game{:phase => :finished}) do
+    {:reply, {:error, :finished}, g}
   end
 
-  def handle_call(:get_state, _from, state) do
-    {:reply, {:ok, state}, state}
-  end
 
-  def handle_call({:join, player_id}, _from, state) when
-    state.phase == :init
-    and not is_map_key(state.lobby, player_id)
-    and map_size(state.lobby) < state.board.players.max
+  def handle_call({:join, player_id}, _from, g) when
+    g.phase == :init
+    and not is_map_key(g.lobby, player_id)
+    and map_size(g.lobby) < g.board.players.max
   do
     # Player joins new game
-    Logger.info "Player #{player_id} joins the game lobby #{state.id}"
+    Logger.info "Player #{player_id} joins the game lobby #{g.id}"
     {:reply, :ok, %Game{
-      state | lobby: Map.put(
-        state.lobby, player_id, %Gg2048.Player{id: player_id}
+      g | lobby: Map.put(
+        g.lobby, player_id, %Gg2048.Player{id: player_id}
       )
     }}
   end
 
-  def handle_call({:join, player_id}, _from, state) when
-    state.phase == :started
-    and is_map_key(state.lobby, player_id)
+  def handle_call({:join, player_id}, _from, g) when
+    g.phase == :started
+    and is_map_key(g.lobby, player_id)
   do
     # Player reconnects to already started game
-    lobby = state.lobby
+    lobby = g.lobby
 
     case lobby[player_id] do
       p = %Player{in_game: false} ->
-        Logger.info "Player #{player_id} reconnected the game #{state.id}"
+        Logger.info "Player #{player_id} reconnected the game #{g.id}"
 
-        {:reply, :ok, do_reconnect(state, p)}
+        {:reply, :ok, do_reconnect(g, p)}
       _ ->
-        {:reply, {:error, :player_connected}, state}
+        {:reply, {:error, :player_connected}, g}
     end
   end
 
   def handle_call(
-    {:leave, player_id}, _from, state
-  ) when state.phase == :init and is_map_key(state.lobby, player_id) do
+    {:leave, player_id}, _from, g
+  ) when g.phase == :init and is_map_key(g.lobby, player_id) do
     # Player leaves from not yet started game
-    lobby = state.lobby
+    lobby = g.lobby
 
-    Logger.info "Player #{player_id} leaves the game lobby #{state.id}"
-    {:reply, :ok, %Game{state | lobby: Map.delete(lobby, player_id)}}
+    Logger.info "Player #{player_id} leaves the game lobby #{g.id}"
+    {:reply, :ok, %Game{g | lobby: Map.delete(lobby, player_id)}}
   end
 
   def handle_call(
-    {:leave, player_id}, _from, state
-  ) when state.phase == :started and is_map_key(state.lobby, player_id) do
+    {:leave, player_id}, _from, g
+  ) when g.phase == :started and is_map_key(g.lobby, player_id) do
     # Player for whatever reason stopped playing the game. It could have
     # been intentional decision or technical difficulties.
     # there is a chance the player would come back, meanwhile the game can
     # continue.
-    lobby = state.lobby
+    lobby = g.lobby
     case lobby[player_id] do
       p = %Player{in_game: true} ->
-        Logger.info "Player #{player_id} disconnected the game #{state.id}"
-        {:reply, :ok, do_disconnect(state, p)}
+        Logger.info "Player #{player_id} disconnected the game #{g.id}"
+        {:reply, :ok, do_disconnect(g, p)}
       _ ->
-        {:reply, {:error, :player_disconnected}, state}
+        {:reply, {:error, :player_disconnected}, g}
     end
   end
 
   def handle_call(
-    :start, _from, state
-  ) when state.phase == :init
-    and map_size(state.lobby) >= state.board.players.min
-    and map_size(state.lobby) <= state.board.players.max
+    :start, _from, g
+  ) when g.phase == :init
+    and map_size(g.lobby) >= g.board.players.min
+    and map_size(g.lobby) <= g.board.players.max
   do
-    Logger.info "Starting the game #{state.id}"
-    state = do_start(state)
-    {:reply, :ok, %Game{state | phase: :started}}
+    Logger.info "Starting the game #{g.id}"
+    g = do_start(g)
+    {:reply, :ok, %Game{g | phase: :started}}
   end
 
-  def handle_call(
-    {:move, player_id, to}, _from, state
-  ) when state.phase == :started
-    and hd(state.order) == player_id
+  def handle_call({:move, player_id, to}, _from, g) when g.phase == :started
   do
-    {reply, state} = do_move(state, player_id, to)
-    {:reply, reply, state}
+    {reply, g} = do_move(g, player_id, to)
+    {:reply, reply, g}
   end
 
-  def handle_call(:finish, _from, state) do
-    Logger.info "Preparing to finish the game #{state.id}"
+  def handle_call(:finish, _from, g) do
+    Logger.info "Preparing to finish the game #{g.id}"
     # there are some calls might be in flight, let them finish
     GenServer.cast(self(), :finish)
 
-    state = do_finish(state)
-    {:reply, :ok, %Game{state | phase: :finished}}
+    g = do_finish(g)
+    {:reply, :ok, %Game{g | phase: :finished}}
   end
 
-  def handle_call(call, _from, state) do
-    {:reply, {:error, {:wrong_call, state, call}}, state}
+  def handle_call(call, _from, g) do
+    {:reply, {:error, {:wrong_call, g, call}}, g}
   end
 
 
   @impl true
-  def handle_cast(:finish, state = %Game{:id => id, :phase => :finished}) do
+  def handle_cast(:finish, g = %Game{:id => id, :phase => :finished}) do
     Logger.info "Finishing game #{id}"
 
-    {:stop, :normal, do_finish(state)}
+    {:stop, :normal, do_finish(g)}
   end
 
 
@@ -242,37 +234,66 @@ defmodule Gg2048.Game do
   end
 
 
-  defp do_start(state) do
+  defp do_start(g) do
     order =
-      state.lobby
+      g.lobby
       |> Map.keys
       |> Enum.shuffle
-    %Game{state | order: order}
+
+    %Game{ g |
+      order: order,
+      board: Board.place_rnd!(g.board)
+    }
   end
 
 
-  def do_disconnect(state, p) do
+  def do_disconnect(g, p) do
     # after disconnect player no participates in the game
-    lobby = %{state.lobby | p.id => %Player{p | in_game: false}}
-    %Game{state | lobby: lobby, order: List.delete(state.order, p.id)}
+    lobby = %{g.lobby | p.id => %Player{p | in_game: false}}
+    %Game{g | lobby: lobby, order: List.delete(g.order, p.id)}
   end
 
-  def do_reconnect(state, p) do
+  def do_reconnect(g, p) do
     # after reconnect player becomes last to move
-    lobby = %{state.lobby | p.id => %Player{p | in_game: true}}
-    %Game{state | lobby: lobby, order: state.order ++ [p.id]}
+    lobby = %{g.lobby | p.id => %Player{p | in_game: true}}
+    %Game{g | lobby: lobby, order: g.order ++ [p.id]}
   end
 
 
-  def do_move(state, player_id, to) do
-    Board.move(state.board, to)
+  def do_move(g, player_id, _to) when hd(g.order) != player_id do
+    {{:error, :player_wrong_order}, g}
+  end
+  def do_move(g, player_id, to)  do
+    {move_score, new_board} = Board.move(g.board, to)
+    if new_board != g.board do
+      # the board map has changed, therefor move succeeded and some free space
+      # emerged
+      {:ok, order_shift(%Game{g |
+        lobby: Map.update!(
+          g.lobby, player_id, fn p ->
+            %Player{ p | score:  p.score + move_score}
+          end
+        ),
+        board: Board.place_rnd!(new_board)
+      })}
+    else
+      {{:error, :board_unchanged}, g}
+    end
   end
 
-  defp do_finish(state) do
-    # unregister the game from further interractions
-    Registry.unregister(Gg2048.Game.Registry, state.id)
+  defp do_finish(g) do
+    # unregister the game from further interactions
+    Registry.unregister(Gg2048.Game.Registry, g.id)
 
     # placeholder to send ladder stats
-    state
+    g
+  end
+
+
+  defp order_shift(g) do
+    # TODO: highly inefficient adding to the tail every time, replace data
+    # structr
+    {h, tl} = List.pop_at(g.order, 0)
+    %Game{g | order: tl ++ [h]}
   end
 end

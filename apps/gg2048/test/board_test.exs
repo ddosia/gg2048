@@ -22,37 +22,88 @@ defmodule BoardTest do
       size: %{rows: 6, cols: 6}
     }
 
-    assert Board.move(b, :right) == %Board{b | map: {
+    assert {20, %Board{map: {
       0,0,0,0,0,0,
       0,0,0,0,0,2,
       0,0,0,0,8,2,
       0,0,0,0,0,4,
       0,0,0,0,0,4,
       0,0,0,0,8,4,
-    }}
-    assert Board.move(b, :left) == %Board{b | map: {
+    }}} = Board.move(b, :right)
+
+    assert {20, %Board{map: {
       0,0,0,0,0,0,
       2,0,0,0,0,0,
       8,2,0,0,0,0,
       4,0,0,0,0,0,
       4,0,0,0,0,0,
       8,4,0,0,0,0,
-    }}
-    assert Board.move(b, :up) == %Board{b | map: {
+    }}} = Board.move(b, :left)
+
+    assert {12, %Board{map: {
       4,8,0,4,4,4,
       0,0,0,4,2,2,
       0,0,0,0,0,0,
       0,0,0,0,0,0,
       0,0,0,0,0,0,
       0,0,0,0,0,0,
-    }}
-    assert Board.move(b, :down) == %Board{b | map: {
+    }}} = Board.move(b, :up)
+
+    assert {12, %Board{map: {
       0,0,0,0,0,0,
       0,0,0,0,0,0,
       0,0,0,0,0,0,
       0,0,0,0,0,0,
       0,0,0,4,2,2,
       4,8,0,4,4,4,
-    }}
+    }}} = Board.move(b, :down)
+
+  end
+
+  test "place random 2" do
+    b = %Board{
+      map: {
+        0,2,4,
+        8,0,6,
+        6,4,0,
+      },
+      size: %{rows: 3, cols: 3}
+    }
+
+    b = b |> Board.place_rnd! |> Board.place_rnd! |> Board.place_rnd!
+
+    assert b.map == {
+      2,2,4,
+      8,2,6,
+      6,4,2,
+    }
+  end
+
+  test "score" do
+    b = %Board{
+      map: {
+        0,0,0,0,
+        0,0,0,0,
+        0,0,0,0,
+        0,0,0,0,
+      },
+      size: %{rows: 4, cols: 4}
+    }
+
+    assert {0, _} = Board.move(b, :right)
+
+    assert {0, _} = Board.move(%Board{b | map: {
+      2,0,0,0,
+      0,0,0,0,
+      0,0,0,0,
+      0,0,0,0,
+    }}, :right)
+
+    assert {48, _} = Board.move(%Board{b | map: {
+      0,2,0,2,
+      4,2,0,2,
+      4,0,0,4,
+      8,8,8,8,
+    }}, :right)
   end
 end
