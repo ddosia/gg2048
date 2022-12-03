@@ -61,6 +61,16 @@ defmodule Gg2048.Game do
 
   ################
   ## API
+  @spec info(id()) :: ok_error(Game.t())
+  def info(id) do
+	try do
+	  GenServer.call(via(id), :info)
+	catch
+	  :exit, {:noproc, _} ->
+		{:error, :game_not_found}
+	end
+  end
+
   @spec new(Board.t()) :: id()
   def new(board \\ %Board{}) do
     board = Board.init(board)
@@ -127,6 +137,11 @@ defmodule Gg2048.Game do
   @impl true
   def handle_call(_call, _from, g = %Game{:phase => :finished}) do
     {:reply, {:error, :finished}, g}
+  end
+
+
+  def handle_call(:info, _from, g) do
+    {:reply, {:ok, g}, g}
   end
 
 

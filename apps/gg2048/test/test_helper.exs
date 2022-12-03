@@ -2,10 +2,12 @@ ExUnit.start(capture_log: true)
 
 defmodule TestHelper do
   use ExUnit.Case
+  alias Gg2048.{Game}
   alias Gg2048.Game.{Sup}
 
   def get_state(game_id) do
-    :sys.get_state(Sup.id2pid!(game_id))
+    {:ok, g} = Game.info(game_id)
+    g
   end
 
   def put_state(game_id, g) do
