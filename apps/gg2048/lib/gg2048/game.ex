@@ -35,9 +35,11 @@ defmodule Gg2048.Game do
   @type id :: Ecto.UUID.id
 
   @timeout 5 * 60
-  @enforce_keys [:id, :board]
+  @enforce_keys [:id, :board, :created]
   defstruct [
-    :id, :board,
+    :id,
+    :board,
+    :created,
     phase: :init,
     timeout: @timeout,
     order: [],
@@ -51,11 +53,14 @@ defmodule Gg2048.Game do
     order: [Player.id()],
     lobby: %{
       Player.id() => Player.t()
-    }
+    },
+    created: DateTime.t()
   }
 
   require Logger
   use GenServer, restart: :transient, shutdown: @timeout
+
+  alias Phoenix.PubSub
   alias Gg2048.Game.{Sup}
   alias Gg2048.{Game, Board, Player}
 
@@ -130,7 +135,10 @@ defmodule Gg2048.Game do
   @impl true
   def init([id, board]) do
     Logger.info "initializing new game #{id}"
-    {:ok, %Game{:id => id, :board => board}}
+    g = %Game{:id => id, :board => board, created: DateTime.utc_now()}
+
+    :ok = notify(nil, g)
+    {:ok, g}
   end
 
 
@@ -150,13 +158,17 @@ defmodule Gg2048.Game do
     and not is_map_key(g.lobby, player_id)
     and map_size(g.lobby) < g.board.players.max
   do
+    g_orig = g
     # Player joins new game
     Logger.info "Player #{player_id} joins the game lobby #{g.id}"
-    {:reply, :ok, %Game{
+
+    g = %Game{
       g | lobby: Map.put(
         g.lobby, player_id, %Gg2048.Player{id: player_id}
       )
-    }}
+    }
+    notify(g_orig, g)
+    {:reply, :ok, g}
   end
 
   def handle_call({:join, player_id}, _from, g) when
@@ -179,11 +191,16 @@ defmodule Gg2048.Game do
   def handle_call(
     {:leave, player_id}, _from, g
   ) when g.phase == :init and is_map_key(g.lobby, player_id) do
+    g_orig = g
+
     # Player leaves from not yet started game
     lobby = g.lobby
 
     Logger.info "Player #{player_id} leaves the game lobby #{g.id}"
-    {:reply, :ok, %Game{g | lobby: Map.delete(lobby, player_id)}}
+    g = %Game{g | lobby: Map.delete(lobby, player_id)}
+
+    notify(g_orig, g)
+    {:reply, :ok, g}
   end
 
   def handle_call(
@@ -209,24 +226,38 @@ defmodule Gg2048.Game do
     and map_size(g.lobby) >= g.board.players.min
     and map_size(g.lobby) <= g.board.players.max
   do
+    g_orig = g
+
     Logger.info "Starting the game #{g.id}"
     g = do_start(g)
-    {:reply, :ok, %Game{g | phase: :started}}
+    g = %Game{g | phase: :started}
+
+    notify(g_orig, g)
+    {:reply, :ok, g}
   end
 
   def handle_call({:move, player_id, to}, _from, g) when g.phase == :started
   do
+    g_orig = g
+
     {reply, g} = do_move(g, player_id, to)
+
+    notify(g_orig, g)
     {:reply, reply, g}
   end
 
   def handle_call(:finish, _from, g) do
+    g_orig = g
+
     Logger.info "Preparing to finish the game #{g.id}"
     # there are some calls might be in flight, let them finish
     GenServer.cast(self(), :finish)
 
     g = do_finish(g)
-    {:reply, :ok, %Game{g | phase: :finished}}
+    g = %Game{g | phase: :finished}
+
+    notify(g_orig, g)
+    {:reply, :ok, g}
   end
 
   def handle_call(call, _from, g) do
@@ -237,8 +268,7 @@ defmodule Gg2048.Game do
   @impl true
   def handle_cast(:finish, g = %Game{:id => id, :phase => :finished}) do
     Logger.info "Finishing game #{id}"
-
-    {:stop, :normal, do_finish(g)}
+    {:stop, :normal, g}
   end
 
 
@@ -310,5 +340,25 @@ defmodule Gg2048.Game do
     # structr
     {h, tl} = List.pop_at(g.order, 0)
     %Game{g | order: tl ++ [h]}
+  end
+
+
+  defp notify(nil, changed) do
+    # new game
+    PubSub.broadcast(Gg2048.PubSub, "lobby", changed)
+    PubSub.broadcast(Gg2048.PubSub, "game:#{changed.id}", changed)
+  end
+
+  defp notify(orig, changed) do
+    keys =
+      for {k, %{changed: change_type}}
+        <- MapDiff.diff(orig, changed).value,
+        change_type != :equal, do: k
+
+    if keys -- [:phase, :order, :lobby] != keys  do
+      PubSub.broadcast(Gg2048.PubSub, "lobby", changed)
+    end
+
+    PubSub.broadcast(Gg2048.PubSub, "game:#{changed.id}", changed)
   end
 end
