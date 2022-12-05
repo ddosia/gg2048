@@ -1,4 +1,4 @@
-.PHONY: all deps start
+.PHONY: all deps start dialyzer
 
 start:
 	iex -S mix phx.server
@@ -10,7 +10,7 @@ deps:
 	mix do deps.get, deps.compile
 
 dialyzer:
-	mix dialyzer
+	mix dialyzer --format github
 
 test:
 	mix test
