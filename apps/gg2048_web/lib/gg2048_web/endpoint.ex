@@ -22,15 +22,6 @@ defmodule Gg2048Web.Endpoint do
         _ ->
           conn
       end
-
-#    IO.puts """
-#      conn: #{inspect(conn.cookies)}
-#      Verb: #{inspect(conn.method)}
-#      Host: #{inspect(conn.host)}
-#      Headers: #{inspect(conn.req_headers)}
-#      Opts: #{opts}
-#    """
-
     conn
   end
 
