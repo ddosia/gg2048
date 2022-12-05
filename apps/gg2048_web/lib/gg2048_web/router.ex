@@ -20,7 +20,7 @@ defmodule Gg2048Web.Router do
   scope "/", Gg2048Web do
     pipe_through :browser
 
-	live "/", Lobby
-	live "/games/:game_id", Game
+    live "/", Lobby
+    live "/games/:game_id", Game
   end
 end
