@@ -3,7 +3,7 @@ defmodule Gg2048.Board do
   @type ok_error(ok) :: Gg2048.ok_error(ok)
   @type to :: :up | :right | :down | :left
 
-  defstruct [:map, size: %{rows: 6, cols: 6}, players: %{min: 1, max: 2}]
+  defstruct [map: {}, size: %{rows: 6, cols: 6}, players: %{min: 1, max: 2}]
   @type t :: %__MODULE__{
     map: tuple(), # flat 2d map
     size: %{rows: pos_integer(), cols: pos_integer()},
@@ -27,7 +27,7 @@ defmodule Gg2048.Board do
     end
   end
 
-  @spec move(t(), to()) :: ok_error({score:: non_neg_integer(), t()})
+  @spec move(t(), to()) :: {score:: non_neg_integer(), t()}
   def move(board, to) when to == :up or to == :down do
     size = board.size.cols
     move_factor = size

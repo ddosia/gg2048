@@ -10,7 +10,7 @@ defmodule Gg2048Web.Game do
     Process.flag(:trap_exit, true)
 
     %{"game_id" => game_id} = params
-    Phoenix.PubSub.subscribe(Gg2048.PubSub, "game:#{game_id}")
+    :ok = Phoenix.PubSub.subscribe(Gg2048.PubSub, "game:#{game_id}")
 
     case Game.info(game_id) do
       {:ok, g} ->

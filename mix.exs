@@ -7,7 +7,12 @@ defmodule Gg2048.Umbrella.MixProject do
       version: "0.1.0",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      aliases: aliases()
+      aliases: aliases(),
+      dialyzer: [
+        plt_file: {:no_warn, "priv/plts/dialyzer.plt"},
+        flags: ["-Wunmatched_returns", :error_handling, :underspecs],
+        ignore_warnings: "dialyzer.ignore-warnings"
+      ]
     ]
   end
 
@@ -25,6 +30,7 @@ defmodule Gg2048.Umbrella.MixProject do
   # and cannot be accessed from applications inside the apps/ folder.
   defp deps do
     [
+      {:dialyxir, "~> 1.1", only: [:dev], runtime: false},
     ]
   end
 

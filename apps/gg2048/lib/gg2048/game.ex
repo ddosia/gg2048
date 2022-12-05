@@ -30,9 +30,13 @@ end
 
 
 defmodule Gg2048.Game do
+  alias Phoenix.PubSub
+  alias Gg2048.Game.{Sup}
+  alias Gg2048.{Game, Board, Player}
+
   @type ok_error() :: Gg2048.ok_error()
   @type ok_error(ok) :: Gg2048.ok_error(ok)
-  @type id :: Ecto.UUID.id
+  @type id :: Ecto.UUID.t()
 
   @timeout 5 * 60
   @enforce_keys [:id, :board, :created]
@@ -59,10 +63,6 @@ defmodule Gg2048.Game do
 
   require Logger
   use GenServer, restart: :transient, shutdown: @timeout
-
-  alias Phoenix.PubSub
-  alias Gg2048.Game.{Sup}
-  alias Gg2048.{Game, Board, Player}
 
 
   defmacro can_start(g, player_id) do
@@ -187,7 +187,7 @@ defmodule Gg2048.Game do
             g.lobby, player_id, %Gg2048.Player{id: player_id}
           )
         }
-        notify(g_orig, g)
+        :ok = notify(g_orig, g)
         {:reply, :ok, g}
     end
   end
@@ -220,7 +220,7 @@ defmodule Gg2048.Game do
     Logger.info "Player #{player_id} leaves the game lobby #{g.id}"
     g = %Game{g | lobby: Map.delete(lobby, player_id)}
 
-    notify(g_orig, g)
+    :ok = notify(g_orig, g)
     {:reply, :ok, g}
   end
 
@@ -253,7 +253,7 @@ defmodule Gg2048.Game do
       g = do_start(g)
       g = %Game{g | phase: :started}
 
-      notify(g_orig, g)
+      :ok = notify(g_orig, g)
       {:reply, :ok, g}
     else
       {:reply, {:error, :game_cant_start}, g}
@@ -266,7 +266,7 @@ defmodule Gg2048.Game do
 
     {reply, g} = do_move(g, player_id, to)
     if reply == :ok do
-      notify(g_orig, g)
+      :ok = notify(g_orig, g)
     end
 
     {:reply, reply, g}
@@ -282,7 +282,7 @@ defmodule Gg2048.Game do
     g = do_finish(g)
     g = %Game{g | phase: :finished}
 
-    notify(g_orig, g)
+    :ok = notify(g_orig, g)
     {:reply, :ok, g}
   end
 
@@ -371,8 +371,8 @@ defmodule Gg2048.Game do
 
   defp notify(nil, changed) do
     # new game
-    PubSub.broadcast(Gg2048.PubSub, "lobby", changed)
-    PubSub.broadcast(Gg2048.PubSub, "game:#{changed.id}", changed)
+    :ok = PubSub.broadcast(Gg2048.PubSub, "lobby", changed)
+    :ok = PubSub.broadcast(Gg2048.PubSub, "game:#{changed.id}", changed)
   end
 
   defp notify(orig, changed) do
@@ -382,9 +382,9 @@ defmodule Gg2048.Game do
         change_type != :equal, do: k
 
     if keys -- [:phase, :order, :lobby] != keys  do
-      PubSub.broadcast(Gg2048.PubSub, "lobby", changed)
+      :ok = PubSub.broadcast(Gg2048.PubSub, "lobby", changed)
     end
 
-    PubSub.broadcast(Gg2048.PubSub, "game:#{changed.id}", changed)
+    :ok = PubSub.broadcast(Gg2048.PubSub, "game:#{changed.id}", changed)
   end
 end
