@@ -2,7 +2,7 @@ defmodule Gg2048Web.Game do
   use Phoenix.LiveView
   require Logger
 
-  alias Gg2048.{Game, Board}
+  alias Gg2048.{Game}
 
 
   def mount(params, session, socket) do
@@ -40,7 +40,7 @@ defmodule Gg2048Web.Game do
   end
 
 
-  def handle_event("start", value, socket) do
+  def handle_event("start", _value, socket) do
     socket =
       case Game.start(socket.assigns.game.id, socket.assigns.user_id) do
         :ok -> socket
@@ -49,7 +49,7 @@ defmodule Gg2048Web.Game do
     {:noreply,  socket}
   end
 
-  def handle_event(to, value, socket) when to in ["left", "right", "up", "down"] do
+  def handle_event(to, _value, socket) when to in ["left", "right", "up", "down"] do
     case Game.move(
       socket.assigns.game.id, socket.assigns.user_id, String.to_atom(to)
     ) do
@@ -133,19 +133,18 @@ defmodule Gg2048Web.Game.Component do
   end
 
   def player(assigns) do
-    # avoid empty list
     is_player_turn = hd(assigns.game.order ++ [:nil]) == assigns.player.id
+    assigns = assign(assigns, :is_player_turn, is_player_turn)
 
-    theme =
+    assigns =
       if assigns.user_id == assigns.player.id and is_player_turn do
-        "text-light bg-dark"
+        assign(assigns, :theme, "text-light bg-dark")
       else
-        ""
+        assign(assigns, :theme, "")
       end
 
-
     ~H"""
-      <tr class={theme}>
+      <tr class={@theme} %>
         <td>
           <%= if @player.id == @user_id do %>
             YOU
@@ -160,7 +159,7 @@ defmodule Gg2048Web.Game.Component do
           <%= @player.score %>
         </td>
         <td>
-          <%= is_player_turn %>
+          <%= @is_player_turn %>
         </td>
       </tr>
     """
