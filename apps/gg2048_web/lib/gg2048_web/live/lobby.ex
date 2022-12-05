@@ -4,7 +4,7 @@ defmodule Gg2048Web.Lobby do
   alias Gg2048.{Game, Board}
 
   def mount(_params, session, socket) do
-    Phoenix.PubSub.subscribe(Gg2048.PubSub, "lobby")
+    :ok = Phoenix.PubSub.subscribe(Gg2048.PubSub, "lobby")
 
     games =
       for game_id <- Gg2048.Game.Sup.children,

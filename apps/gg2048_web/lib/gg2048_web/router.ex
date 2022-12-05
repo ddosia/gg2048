@@ -23,9 +23,4 @@ defmodule Gg2048Web.Router do
 	live "/", Lobby
 	live "/games/:game_id", Game
   end
-
-  # Other scopes may use custom stacks.
-  # scope "/api", Gg2048Web do
-  #   pipe_through :api
-  # end
 end

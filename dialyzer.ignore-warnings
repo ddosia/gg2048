@@ -1,0 +1,2 @@
+lib/gg2048_web/router.ex:1: The pattern <<<71,69,84>>, [], _> can never match since previous clauses completely covered the type <_,_,_>
+lib/gg2048_web/router.ex:1: The pattern <<<71,69,84>>, [<<103,97,109,101,115>>, _game_id@1], _> can never match since previous clauses completely covered the type <_,_,_>
