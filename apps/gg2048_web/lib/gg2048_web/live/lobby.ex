@@ -1,10 +1,9 @@
 defmodule Gg2048Web.Lobby do
-  use Phoenix.LiveView
+  use Gg2048Web, :live_view
 
   alias Gg2048.{Game, Board}
 
-  def mount(_params, _session, socket) do
-    # Gg2048Web.Endpoint.subscribe(@topic)
+  def mount(_params, session, socket) do
     Phoenix.PubSub.subscribe(Gg2048.PubSub, "lobby")
 
     games =
@@ -13,7 +12,12 @@ defmodule Gg2048Web.Lobby do
       into: %{},
       do: {g.id, g}
 
-    {:ok, assign(socket, :games, games)}
+    socket =
+      socket
+      |> assign(:user_id, session["user_id"])
+      |> assign(:games, games)
+
+    {:ok, socket}
   end
 
 
@@ -26,6 +30,7 @@ defmodule Gg2048Web.Lobby do
     } = value
     {rows, cols} =
       case map_size do
+        "4x4" -> {4,4}
         "6x6" -> {6,6}
         "8x8" -> {8,8}
         "10x10" -> {10,10}
@@ -50,7 +55,6 @@ defmodule Gg2048Web.Lobby do
   end
   def handle_info(g = %Game{phase: _}, socket) do
     # removing started and finished games from lobby
-    IO.puts "#{inspect socket.assigns.games}"
     {:noreply, assign(socket, games: Map.delete(socket.assigns.games, g.id))}
   end
 
@@ -64,6 +68,7 @@ defmodule Gg2048Web.Lobby do
               <label class="col-md-2">Size:</label>
               <div class="col-md-10">
                 <select name="map_size" class="form-select">
+                  <option value="4x4">4x4</option>
                   <option value="6x6">6x6</option>
                   <option value="8x8">8x8</option>
                   <option value="10x10">10x10</option>
@@ -90,7 +95,7 @@ defmodule Gg2048Web.Lobby do
           </form>
         </div>
         <div class="col-md-8">
-          <Gg2048Web.Component.games_summary games={@games} />
+          <Gg2048Web.Lobby.Component.games_summary games={@games} />
         </div>
       </div>
     </section>
@@ -99,7 +104,7 @@ defmodule Gg2048Web.Lobby do
 end
 
 
-defmodule Gg2048Web.Component do
+defmodule Gg2048Web.Lobby.Component do
   use Phoenix.Component
 
   def games_summary(assigns) do
@@ -113,7 +118,7 @@ defmodule Gg2048Web.Component do
         </thead>
         <tbody>
           <%= for {_id, g} <- @games do %>
-            <Gg2048Web.Component.game_summary game={g} />
+            <.game_summary game={g} />
           <% end %>
         </tbody>
       </table>

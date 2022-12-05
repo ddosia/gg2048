@@ -64,6 +64,17 @@ defmodule Gg2048.Game do
   alias Gg2048.Game.{Sup}
   alias Gg2048.{Game, Board, Player}
 
+
+  defmacro can_start(g, player_id) do
+    quote do
+      unquote(g).phase == :init
+      and map_size(unquote(g).lobby) >= unquote(g).board.players.min
+      and map_size(unquote(g).lobby) <= unquote(g).board.players.max
+      and is_map_key(unquote(g).lobby, unquote(player_id))
+      and :erlang.map_get(:in_game, unquote(g).lobby[unquote(player_id)])
+    end
+  end
+
   ################
   ## API
   @spec info(id()) :: ok_error(Game.t())
@@ -107,14 +118,21 @@ defmodule Gg2048.Game do
   end
 
 
-  @spec start(id()) :: ok_error()
-  def start(id) do
-    GenServer.call(via(id), :start)
+  @spec can_start?(id, Player.id()) :: boolean()
+  def can_start?(id, player_id) do
+    {:ok, res} = GenServer.call(via(id), {:can_start, player_id})
+    res
   end
 
 
-  @spec move(id(), Player.id(), Board.to()) :: ok_error(Board.t())
-  def move(id, player_id, to) do
+  @spec start(id(), Player.id()) :: ok_error()
+  def start(id, player_id) do
+    GenServer.call(via(id), {:start, player_id})
+  end
+
+
+  @spec move(id(), Player.id(), Board.to()) :: ok_error()
+  def move(id, player_id, to) when to in [:up, :right, :down, :left] do
     GenServer.call(via(id), {:move, player_id, to})
   end
 
@@ -153,22 +171,25 @@ defmodule Gg2048.Game do
   end
 
 
-  def handle_call({:join, player_id}, _from, g) when
-    g.phase == :init
-    and not is_map_key(g.lobby, player_id)
-    and map_size(g.lobby) < g.board.players.max
-  do
-    g_orig = g
-    # Player joins new game
-    Logger.info "Player #{player_id} joins the game lobby #{g.id}"
+  def handle_call({:join, player_id}, _from, g) when g.phase == :init do
+    cond do
+      is_map_key(g.lobby, player_id) ->
+        {:reply, {:error, :player_connected}, g}
+      map_size(g.lobby) >= g.board.players.max ->
+        {:reply, {:error, :player_limit_reached}, g}
+      true ->
+        g_orig = g
+        # Player joins new game
+        Logger.info "Player #{player_id} joins the game lobby #{g.id}"
 
-    g = %Game{
-      g | lobby: Map.put(
-        g.lobby, player_id, %Gg2048.Player{id: player_id}
-      )
-    }
-    notify(g_orig, g)
-    {:reply, :ok, g}
+        g = %Game{
+          g | lobby: Map.put(
+            g.lobby, player_id, %Gg2048.Player{id: player_id}
+          )
+        }
+        notify(g_orig, g)
+        {:reply, :ok, g}
+    end
   end
 
   def handle_call({:join, player_id}, _from, g) when
@@ -220,20 +241,23 @@ defmodule Gg2048.Game do
     end
   end
 
-  def handle_call(
-    :start, _from, g
-  ) when g.phase == :init
-    and map_size(g.lobby) >= g.board.players.min
-    and map_size(g.lobby) <= g.board.players.max
-  do
-    g_orig = g
+  def handle_call({:can_start, player_id}, _from, g) do
+    {:reply, {:ok, can_start(g, player_id)}, g}
+  end
 
-    Logger.info "Starting the game #{g.id}"
-    g = do_start(g)
-    g = %Game{g | phase: :started}
+  def handle_call({:start, player_id}, _from, g) do
+    if can_start(g, player_id) do
+      g_orig = g
 
-    notify(g_orig, g)
-    {:reply, :ok, g}
+      Logger.info "Starting the game #{g.id}"
+      g = do_start(g)
+      g = %Game{g | phase: :started}
+
+      notify(g_orig, g)
+      {:reply, :ok, g}
+    else
+      {:reply, {:error, :game_cant_start}, g}
+    end
   end
 
   def handle_call({:move, player_id, to}, _from, g) when g.phase == :started
@@ -241,8 +265,10 @@ defmodule Gg2048.Game do
     g_orig = g
 
     {reply, g} = do_move(g, player_id, to)
+    if reply == :ok do
+      notify(g_orig, g)
+    end
 
-    notify(g_orig, g)
     {:reply, reply, g}
   end
 

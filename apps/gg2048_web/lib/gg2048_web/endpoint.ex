@@ -12,13 +12,24 @@ defmodule Gg2048Web.Endpoint do
 
   socket "/live", Phoenix.LiveView.Socket, websocket: [connect_info: [session: @session_options]]
 
-  def introspect(conn, opts) do
-    IO.puts """
-      Verb: #{inspect(conn.method)}
-      Host: #{inspect(conn.host)}
-      Headers: #{inspect(conn.req_headers)}
-      Opts: #{opts}
-    """
+  def sess_user_id(conn, _opts) do
+    conn = Plug.Conn.fetch_session(conn)
+    conn =
+      case Plug.Conn.get_session(conn, :user_id) do
+        nil ->
+          user_id = Ecto.UUID.generate()
+          Plug.Conn.put_session(conn, :user_id, user_id)
+        _ ->
+          conn
+      end
+
+#    IO.puts """
+#      conn: #{inspect(conn.cookies)}
+#      Verb: #{inspect(conn.method)}
+#      Host: #{inspect(conn.host)}
+#      Headers: #{inspect(conn.req_headers)}
+#      Opts: #{opts}
+#    """
 
     conn
   end
@@ -51,6 +62,6 @@ defmodule Gg2048Web.Endpoint do
   plug Plug.MethodOverride
   plug Plug.Head
   plug Plug.Session, @session_options
-  plug :introspect
+  plug :sess_user_id
   plug Gg2048Web.Router
 end

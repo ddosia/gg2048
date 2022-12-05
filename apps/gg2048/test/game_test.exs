@@ -43,9 +43,7 @@ defmodule GameTest do
   test "join twice", context do
     game_id = context[:game_id]
     assert Game.join(game_id, context[:alice].id) == :ok
-    assert wrong_call(
-      Game.join(game_id, context[:alice].id)
-    )== {:join, context[:alice].id}
+    assert Game.join(game_id, context[:alice].id) == {:error, :player_connected}
   end
 
   test "join two", context do
@@ -60,9 +58,7 @@ defmodule GameTest do
     assert Game.join(game_id, context[:alice].id) == :ok
     assert Game.join(game_id, context[:bob].id) == :ok
     assert Game.join(game_id, context[:carol].id) == :ok
-    assert wrong_call(
-      Game.join(game_id, context[:dave].id)
-    ) == {:join, context[:dave].id}
+    assert Game.join(game_id, context[:dave].id) == {:error, :player_limit_reached}
   end
 
   test "join full -> leave join", context do
@@ -70,9 +66,7 @@ defmodule GameTest do
     assert Game.join(game_id, context[:alice].id) == :ok
     assert Game.join(game_id, context[:bob].id) == :ok
     assert Game.join(game_id, context[:carol].id) == :ok
-    assert wrong_call(
-      Game.join(game_id, context[:dave].id)
-    ) == {:join, context[:dave].id}
+    assert Game.join(game_id, context[:dave].id) == {:error, :player_limit_reached}
 
     assert Game.leave(game_id, context[:alice].id) == :ok
     assert Game.join(game_id, context[:dave].id) == :ok
@@ -89,16 +83,16 @@ defmodule GameTest do
   test "start", context do
     game_id = context[:game_id]
     # not enough players
-    assert wrong_call(Game.start(game_id)) == :start
+    assert Game.start(game_id, context[:alice].id) == {:error, :game_cant_start}
 
     :ok = Game.join(game_id, context[:alice].id)
-    assert Game.start(game_id) == :ok
+    assert Game.start(game_id, context[:alice].id) == :ok
   end
 
   test "disconnect from started", context do
     game_id = context[:game_id]
     :ok = Game.join(game_id, context[:alice].id)
-    :ok = Game.start(game_id)
+    :ok = Game.start(game_id, context[:alice].id)
 
     assert Game.leave(game_id, context[:alice].id) == :ok
     assert Game.leave(game_id, context[:alice].id) == {:error, :player_disconnected}
@@ -116,7 +110,7 @@ defmodule GameTest do
     for p_id <- player_ids do
       :ok = Game.join(game_id, p_id)
     end
-    :ok = Game.start(game_id)
+    :ok = Game.start(game_id, context[:alice].id)
 
     game = get_state(game_id)
     assert game.order |> Enum.sort == player_ids
@@ -131,7 +125,7 @@ defmodule GameTest do
     for p_id <- player_ids do
       :ok = Game.join(game_id, p_id)
     end
-    :ok = Game.start(game_id)
+    :ok = Game.start(game_id, context[:alice].id)
     :ok = Game.leave(game_id, context[:alice].id)
 
     game = get_state(game_id)
@@ -153,7 +147,7 @@ defmodule GameTest do
     for p_id <- player_ids do
       :ok = Game.join(game_id, p_id)
     end
-    :ok = Game.start(game_id)
+    :ok = Game.start(game_id, context[:alice].id)
 
     game = get_state(game_id)
 
@@ -178,7 +172,7 @@ defmodule GameTest do
     assert [] = map_vals(game_id)
 
     # after game start 1 random value is placed
-    :ok = Game.start(game_id)
+    :ok = Game.start(game_id, context[:alice].id)
     assert [{_, 2}] = map_vals(game_id)
   end
 
@@ -187,7 +181,7 @@ defmodule GameTest do
     game_id = context[:game_id]
     :ok = Game.join(game_id, context[:alice].id)
 
-    :ok = Game.start(game_id)
+    :ok = Game.start(game_id, context[:alice].id)
 
     replace_map(game_id)
     :ok = Game.move(game_id, context[:alice].id, :up)
@@ -205,7 +199,7 @@ defmodule GameTest do
     :ok = Game.join(game_id, context[:alice].id)
     :ok = Game.join(game_id, context[:bob].id)
 
-    :ok = Game.start(game_id)
+    :ok = Game.start(game_id, context[:alice].id)
 
     game = get_state(game_id)
     [p_id1, p_id2] = game.order
@@ -227,6 +221,31 @@ defmodule GameTest do
         score: 0
       },
     }} = get_state(game_id)
+  end
+
+
+  test "can start", context do
+    game_id = context[:game_id]
+    
+    # zero players
+    refute Game.can_start?(game_id, context[:alice].id)
+
+    # 1 min player
+    :ok = Game.join(game_id, context[:alice].id)
+    assert Game.can_start?(game_id, context[:alice].id)
+
+    # bob is not in the game
+    refute Game.can_start?(game_id, context[:bob].id)
+
+    # both can start the game but not carol (not joined)
+    :ok = Game.join(game_id, context[:bob].id)
+    assert Game.can_start?(game_id, context[:alice].id)
+    assert Game.can_start?(game_id, context[:bob].id)
+    refute Game.can_start?(game_id, context[:carol].id)
+
+    # start already started game
+    :ok = Game.start(game_id, context[:alice].id)
+    refute Game.can_start?(game_id, context[:alice].id)
   end
 
 

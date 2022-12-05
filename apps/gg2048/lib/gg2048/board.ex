@@ -17,6 +17,16 @@ defmodule Gg2048.Board do
     %Board{board | map: map}
   end
 
+  @spec as_rect(t()) :: [[integer()], ...]
+  def as_rect(board) do
+    %Board{size: %{rows: rows, cols: cols}} = board
+    for r <- 1..rows do
+      for c <- 1..cols do
+        elem(board.map, (r - 1) * cols + (c - 1))
+      end
+    end
+  end
+
   @spec move(t(), to()) :: ok_error({score:: non_neg_integer(), t()})
   def move(board, to) when to == :up or to == :down do
     size = board.size.cols

@@ -13,6 +13,7 @@
   <body>
       <section class="container py-3 text-center">
           <h1><%= link "Welcome to the GG2048!", to: "/" %></h1>
+          (your id is <%= Plug.Conn.get_session(@conn, :user_id) %>)
       </section>
       <%= @inner_content %>
   </body>
